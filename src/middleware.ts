@@ -56,10 +56,13 @@ export async function middleware(request: NextRequest) {
   }
 
   // If user is not logged in and trying to access a protected page
+  const isTeacherRoute =
+    pathname === "/teacher" || pathname.startsWith("/teacher/");
+
   const isProtectedRoute =
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/club") ||
-    pathname.startsWith("/teacher");
+    isTeacherRoute;
 
   if (isProtectedRoute && !user) {
     const loginUrl = new URL("/login", request.url);
@@ -67,7 +70,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Role-based protection: Student trying to access teacher dashboard
-  if (pathname.startsWith("/teacher") && user?.role !== "teacher") {
+  if (isTeacherRoute && user?.role !== "teacher") {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
