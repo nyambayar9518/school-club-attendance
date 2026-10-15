@@ -45,6 +45,15 @@ NEXT_PUBLIC_TEACHER_CODE=TEACHER2026
 
 ---
 
+## Live Production URLs
+
+- **Primary URL**: **[https://nb-attendance.vercel.app](https://nb-attendance.vercel.app)**
+- **Short Alias**: **[https://nb-clubs.vercel.app](https://nb-clubs.vercel.app)**
+- **Student Sign-Up**: [https://nb-attendance.vercel.app/signup](https://nb-attendance.vercel.app/signup)
+- **Teacher Secret Registration**: [https://nb-attendance.vercel.app/teacher-register](https://nb-attendance.vercel.app/teacher-register)
+
+---
+
 ## 4. Workflows & Routes
 
 ### Student Flow
