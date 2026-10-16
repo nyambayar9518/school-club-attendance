@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { hashPassword, signSessionToken, COOKIE_NAME } from "@/lib/auth";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
+    const rl = await checkRateLimit(`register_student:${ip}`, 10, 900);
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: `Too many sign-up attempts. Please try again in ${Math.ceil(rl.resetSeconds / 60)} minutes.` },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const {
       fullName,
@@ -19,6 +29,13 @@ export async function POST(request: Request) {
     if (!fullName || !phone || !password || !grade || !firstClubName || !secondClubName) {
       return NextResponse.json(
         { error: "Full name, phone, password, grade, and two clubs are required" },
+        { status: 400 }
+      );
+    }
+
+    if (typeof password !== "string" || password.length < 6) {
+      return NextResponse.json(
+        { error: "Password must be at least 6 characters long" },
         { status: 400 }
       );
     }

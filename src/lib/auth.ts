@@ -113,3 +113,20 @@ export async function isAdminAuthenticated(): Promise<boolean> {
   if (!token) return false;
   return verifyAdminToken(token);
 }
+
+/**
+ * Safely compare teacher invite code on server without exposing secrets to client bundle
+ */
+export function verifyTeacherCode(code: string): boolean {
+  const secret = process.env.TEACHER_CODE || process.env.NEXT_PUBLIC_TEACHER_CODE || "TEACHER2026";
+  return code.trim() === secret.trim();
+}
+
+/**
+ * Safely compare admin passcode on server without exposing secrets to client bundle
+ */
+export function verifyAdminCode(passcode: string): boolean {
+  const secret = process.env.ADMIN_CODE || process.env.NEXT_PUBLIC_ADMIN_CODE || "ADMIN2026";
+  return passcode.trim() === secret.trim();
+}
+

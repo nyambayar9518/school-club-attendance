@@ -87,6 +87,11 @@ export default function TeacherRegisterPage() {
       return;
     }
 
+    if (password.length < 6) {
+      setErrorMessage("Password must be at least 6 characters long.");
+      return;
+    }
+
     // Validate schedules
     for (let i = 0; i < schedules.length; i++) {
       const slot = schedules[i];

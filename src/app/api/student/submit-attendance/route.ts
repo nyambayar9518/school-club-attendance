@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
     const user = await getSessionUser();
     if (!user || user.role !== "student") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const rl = await checkRateLimit(`submit_att:${user.id}`, 10, 300);
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: "Submission rate limit reached. Please wait a minute before trying again." },
+        { status: 429 }
+      );
     }
 
     const body = await request.json();

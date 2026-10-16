@@ -6,14 +6,14 @@
 
 export interface CompressionOptions {
   maxWidth?: number;
-  quality?: number; // 0.1 to 1.0 (default 0.7)
+  quality?: number; // 0.1 to 1.0 (default 0.82 for crisp teacher review)
 }
 
 export async function compressImage(
   file: File,
   options: CompressionOptions = {}
 ): Promise<File> {
-  const { maxWidth = 1000, quality = 0.7 } = options;
+  const { maxWidth = 1200, quality = 0.82 } = options;
 
   // If not an image, return original
   if (!file.type.startsWith("image/")) {

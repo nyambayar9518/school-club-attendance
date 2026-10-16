@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyPassword, signSessionToken, COOKIE_NAME } from "@/lib/auth";
+import { checkRateLimit, resetRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
+    const rl = await checkRateLimit(`login:${ip}`, 5, 900);
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: `Too many login attempts. Please try again in ${Math.ceil(rl.resetSeconds / 60)} minutes.` },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const { phone, password } = body;
 
@@ -45,6 +55,9 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
+
+    // Reset failed login counter on success
+    await resetRateLimit(`login:${ip}`);
 
     // Create session token
     const token = await signSessionToken({

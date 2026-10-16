@@ -27,6 +27,22 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
+    // Verify teacher is the leader of this session's club
+    const { data: leaderMember } = await supabaseAdmin
+      .from("club_members")
+      .select("id")
+      .eq("club_id", session.club_id)
+      .eq("user_id", user.id)
+      .eq("role_in_club", "leader")
+      .maybeSingle();
+
+    if (!leaderMember) {
+      return NextResponse.json(
+        { error: "You are not authorized to view details for this club session" },
+        { status: 403 }
+      );
+    }
+
     // Get all enrolled students in this club
     const { data: enrolledMembers, error: memErr } = await supabaseAdmin
       .from("club_members")

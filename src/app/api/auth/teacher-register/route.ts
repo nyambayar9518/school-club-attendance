@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { hashPassword, signSessionToken, COOKIE_NAME } from "@/lib/auth";
+import { hashPassword, signSessionToken, COOKIE_NAME, verifyTeacherCode } from "@/lib/auth";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
+    const rl = await checkRateLimit(`register_teacher:${ip}`, 5, 900);
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: `Too many registration attempts. Please try again in ${Math.ceil(rl.resetSeconds / 60)} minutes.` },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const { fullName, phone, password, teachingClubName, teacherCode } = body;
 
@@ -14,8 +24,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const expectedCode = process.env.NEXT_PUBLIC_TEACHER_CODE || "TEACHER2026";
-    if (teacherCode.trim() !== expectedCode.trim()) {
+    if (typeof password !== "string" || password.length < 6) {
+      return NextResponse.json(
+        { error: "Password must be at least 6 characters long" },
+        { status: 400 }
+      );
+    }
+
+    if (!verifyTeacherCode(teacherCode)) {
       return NextResponse.json(
         { error: "Invalid teacher invite code" },
         { status: 403 }

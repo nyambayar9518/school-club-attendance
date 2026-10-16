@@ -38,10 +38,11 @@ export function ImageUploader({
 
     try {
       setCompressing(true);
-      // Run client-side HTML5 canvas compression to max 1000px and 0.7 JPEG quality
+      // Run client-side HTML5 canvas compression to max 1200px and 0.82 JPEG quality
+      // This ensures text and student work remain crisp and clear for teachers while remaining lightweight (~150KB)
       const compressedFile = await compressImage(file, {
-        maxWidth: 1000,
-        quality: 0.7,
+        maxWidth: 1200,
+        quality: 0.82,
       });
 
       const compressedSize = compressedFile.size;

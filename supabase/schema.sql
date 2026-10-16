@@ -83,42 +83,42 @@ CREATE INDEX IF NOT EXISTS idx_attendance_student ON public.attendance(student_i
 CREATE INDEX IF NOT EXISTS idx_club_schedules_club ON public.club_schedules(club_id);
 CREATE INDEX IF NOT EXISTS idx_club_schedules_day ON public.club_schedules(day_of_week);
 
+-- Rate Limits table for serverless brute-force protection
+CREATE TABLE IF NOT EXISTS public.rate_limits (
+    key TEXT PRIMARY KEY,
+    points INT NOT NULL DEFAULT 1,
+    expire_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_expire_at ON public.rate_limits(expire_at);
+
 -- 4. ROW LEVEL SECURITY (RLS) POLICIES
--- Enables RLS and grants full access to service/anon backend server queries.
+-- Hardened: Lock down tables so public/anon key CANNOT read users, passwords, sessions, or attendance.
+-- All operations are performed exclusively through Next.js server APIs with SUPABASE_SERVICE_ROLE_KEY.
 ALTER TABLE public.clubs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.club_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.club_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.rate_limits ENABLE ROW LEVEL SECURITY;
 
--- Permissive policies for the custom JWT/server application layer
 DO $$
 BEGIN
     DROP POLICY IF EXISTS "Public access for clubs" ON public.clubs;
-    CREATE POLICY "Public access for clubs" ON public.clubs FOR ALL USING (true) WITH CHECK (true);
-
     DROP POLICY IF EXISTS "Public access for users" ON public.users;
-    CREATE POLICY "Public access for users" ON public.users FOR ALL USING (true) WITH CHECK (true);
-
     DROP POLICY IF EXISTS "Public access for club_members" ON public.club_members;
-    CREATE POLICY "Public access for club_members" ON public.club_members FOR ALL USING (true) WITH CHECK (true);
-
     DROP POLICY IF EXISTS "Public access for sessions" ON public.sessions;
-    CREATE POLICY "Public access for sessions" ON public.sessions FOR ALL USING (true) WITH CHECK (true);
-
     DROP POLICY IF EXISTS "Public access for attendance" ON public.attendance;
-    CREATE POLICY "Public access for attendance" ON public.attendance FOR ALL USING (true) WITH CHECK (true);
-
     DROP POLICY IF EXISTS "Public access for club_schedules" ON public.club_schedules;
-    CREATE POLICY "Public access for club_schedules" ON public.club_schedules FOR ALL USING (true) WITH CHECK (true);
-END $$;
+    DROP POLICY IF EXISTS "Public access for rate_limits" ON public.rate_limits;
 
-    DROP POLICY IF EXISTS "Public access for sessions" ON public.sessions;
-    CREATE POLICY "Public access for sessions" ON public.sessions FOR ALL USING (true) WITH CHECK (true);
-
-    DROP POLICY IF EXISTS "Public access for attendance" ON public.attendance;
-    CREATE POLICY "Public access for attendance" ON public.attendance FOR ALL USING (true) WITH CHECK (true);
+    CREATE POLICY "Service role full access on clubs" ON public.clubs FOR ALL TO service_role USING (true) WITH CHECK (true);
+    CREATE POLICY "Service role full access on users" ON public.users FOR ALL TO service_role USING (true) WITH CHECK (true);
+    CREATE POLICY "Service role full access on club_members" ON public.club_members FOR ALL TO service_role USING (true) WITH CHECK (true);
+    CREATE POLICY "Service role full access on sessions" ON public.sessions FOR ALL TO service_role USING (true) WITH CHECK (true);
+    CREATE POLICY "Service role full access on attendance" ON public.attendance FOR ALL TO service_role USING (true) WITH CHECK (true);
+    CREATE POLICY "Service role full access on club_schedules" ON public.club_schedules FOR ALL TO service_role USING (true) WITH CHECK (true);
+    CREATE POLICY "Service role full access on rate_limits" ON public.rate_limits FOR ALL TO service_role USING (true) WITH CHECK (true);
 END $$;
 
 -- 5. SEED MASTER CLUB LIST
@@ -139,34 +139,22 @@ VALUES
     ('attendance-photos', 'attendance-photos', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
--- Storage RLS Policies for avatars
+-- Storage RLS Policies: Public can SELECT (read) to display images, but only service_role can upload
 DO $$
 BEGIN
     DROP POLICY IF EXISTS "Public read avatars" ON storage.objects;
-    CREATE POLICY "Public read avatars" ON storage.objects
-        FOR SELECT USING (bucket_id = 'avatars');
-
     DROP POLICY IF EXISTS "Public insert avatars" ON storage.objects;
-    CREATE POLICY "Public insert avatars" ON storage.objects
-        FOR INSERT WITH CHECK (bucket_id = 'avatars');
-
     DROP POLICY IF EXISTS "Public update avatars" ON storage.objects;
-    CREATE POLICY "Public update avatars" ON storage.objects
-        FOR UPDATE USING (bucket_id = 'avatars');
-END $$;
-
--- Storage RLS Policies for attendance photos
-DO $$
-BEGIN
     DROP POLICY IF EXISTS "Public read attendance photos" ON storage.objects;
-    CREATE POLICY "Public read attendance photos" ON storage.objects
-        FOR SELECT USING (bucket_id = 'attendance-photos');
-
     DROP POLICY IF EXISTS "Public insert attendance photos" ON storage.objects;
-    CREATE POLICY "Public insert attendance photos" ON storage.objects
-        FOR INSERT WITH CHECK (bucket_id = 'attendance-photos');
-
     DROP POLICY IF EXISTS "Public update attendance photos" ON storage.objects;
-    CREATE POLICY "Public update attendance photos" ON storage.objects
-        FOR UPDATE USING (bucket_id = 'attendance-photos');
+
+    CREATE POLICY "Allow public read on avatars" ON storage.objects
+        FOR SELECT TO public USING (bucket_id = 'avatars');
+
+    CREATE POLICY "Allow public read on attendance-photos" ON storage.objects
+        FOR SELECT TO public USING (bucket_id = 'attendance-photos');
+
+    CREATE POLICY "Allow service role full access on storage" ON storage.objects
+        FOR ALL TO service_role USING (true) WITH CHECK (true);
 END $$;

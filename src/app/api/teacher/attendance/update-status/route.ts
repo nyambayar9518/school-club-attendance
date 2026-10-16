@@ -19,6 +19,36 @@ export async function POST(request: Request) {
       );
     }
 
+    // IDOR Protection: Verify teacher is leader of the club for this attendance record
+    const { data: record, error: recErr } = await supabaseAdmin
+      .from("attendance")
+      .select("id, session_id, sessions(club_id)")
+      .eq("id", attendanceId)
+      .maybeSingle();
+
+    if (recErr || !record || !record.sessions) {
+      return NextResponse.json(
+        { error: "Attendance record not found" },
+        { status: 404 }
+      );
+    }
+
+    const clubId = (record.sessions as any).club_id;
+    const { data: leaderMember } = await supabaseAdmin
+      .from("club_members")
+      .select("id")
+      .eq("club_id", clubId)
+      .eq("user_id", user.id)
+      .eq("role_in_club", "leader")
+      .maybeSingle();
+
+    if (!leaderMember) {
+      return NextResponse.json(
+        { error: "You are not authorized to update attendance for this club" },
+        { status: 403 }
+      );
+    }
+
     const { data: updated, error: updateErr } = await supabaseAdmin
       .from("attendance")
       .update({ status })

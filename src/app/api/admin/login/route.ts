@@ -1,22 +1,30 @@
 import { NextResponse } from "next/server";
-import { signAdminToken, ADMIN_COOKIE_NAME } from "@/lib/auth";
+import { signAdminToken, ADMIN_COOKIE_NAME, verifyAdminCode } from "@/lib/auth";
+import { checkRateLimit, resetRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const ip = getClientIp(request);
+    const rl = await checkRateLimit(`admin_login:${ip}`, 5, 900);
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: `Too many failed admin login attempts. Locked for ${Math.ceil(rl.resetSeconds / 60)} minutes.` },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const { passcode } = body;
 
-    const expectedPasscode =
-      process.env.ADMIN_CODE ||
-      process.env.NEXT_PUBLIC_ADMIN_CODE ||
-      "ADMIN2026";
-
-    if (!passcode || passcode.trim() !== expectedPasscode.trim()) {
+    if (!passcode || !verifyAdminCode(passcode)) {
       return NextResponse.json(
         { error: "Invalid administrator passcode" },
         { status: 401 }
       );
     }
+
+    // Reset rate limiter on successful authentication
+    await resetRateLimit(`admin_login:${ip}`);
 
     const token = await signAdminToken();
 

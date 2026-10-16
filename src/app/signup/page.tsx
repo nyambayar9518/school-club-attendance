@@ -77,6 +77,11 @@ export default function StudentSignupPage() {
       return;
     }
 
+    if (password.length < 6) {
+      setErrorMessage("Password must be at least 6 characters long.");
+      return;
+    }
+
     if (firstClub === secondClub) {
       setErrorMessage("Please select two different clubs. Both choices cannot be the same.");
       return;
