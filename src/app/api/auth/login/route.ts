@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { verifyPassword, signSessionToken, COOKIE_NAME } from "@/lib/auth";
 import { checkRateLimit, resetRateLimit, getClientIp } from "@/lib/rate-limit";
+import { getPhoneVariants } from "@/lib/phone";
 
 export async function POST(request: Request) {
   try {
@@ -24,14 +25,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const cleanPhone = phone.trim();
+    // Support +976 and solo 8-digit phone numbers
+    const variants = getPhoneVariants(phone);
 
-    // Query user by phone
-    const { data: user, error } = await supabaseAdmin
+    // Query user by phone variants
+    const { data: users, error } = await supabaseAdmin
       .from("users")
       .select("id, full_name, phone, password_hash, role, grade, avatar_url")
-      .eq("phone", cleanPhone)
-      .maybeSingle();
+      .in("phone", variants);
+
+    const user = users && users.length > 0 ? users[0] : null;
 
     if (error) {
       console.error("Database query error:", error);

@@ -76,27 +76,63 @@ export async function GET(
       });
     }
 
-    // Check if there is an open session today
-    const openSessionToday = (sessions || []).find(
+    // Check open sessions today and match to student grade
+    const openSessionsToday = (sessions || []).filter(
       (s) => s.is_open && s.session_date === todayStr
     );
+
+    let openSessionToday = null;
+    if (user.grade && openSessionsToday.length > 0) {
+      openSessionToday =
+        openSessionsToday.find((s) => {
+          const match = s.title.match(/Grades?\s*(\d+)[–\-](\d+)/i);
+          if (match) {
+            const min = parseInt(match[1], 10);
+            const max = parseInt(match[2], 10);
+            return user.grade! >= min && user.grade! <= max;
+          }
+          return true;
+        }) || openSessionsToday[0];
+    } else {
+      openSessionToday = openSessionsToday[0] || null;
+    }
 
     let todaySubmission = null;
     if (openSessionToday) {
       todaySubmission = attendanceMap.get(openSessionToday.id) || null;
     }
 
-    // Format session history for the student
+    // Format session history for the student, checking grade relevance
+    let totalApplicable = 0;
+    let studentApprovedCount = 0;
+
     const sessionHistory = (sessions || []).map((s) => {
       const submission = attendanceMap.get(s.id);
-      let calculatedStatus: "approved" | "pending" | "rejected" | "absent" = "absent";
+      let isApplicable = true;
 
+      if (user.grade) {
+        const match = s.title.match(/Grades?\s*(\d+)[–\-](\d+)/i);
+        if (match) {
+          const min = parseInt(match[1], 10);
+          const max = parseInt(match[2], 10);
+          if (user.grade < min || user.grade > max) {
+            isApplicable = false;
+          }
+        }
+      }
+
+      let calculatedStatus: "approved" | "pending" | "rejected" | "absent" = "absent";
       if (submission) {
         calculatedStatus = submission.status;
-      } else if (s.is_open) {
-        calculatedStatus = "absent"; // or pending check-in
       } else {
         calculatedStatus = "absent";
+      }
+
+      if (isApplicable) {
+        totalApplicable++;
+        if (calculatedStatus === "approved") {
+          studentApprovedCount++;
+        }
       }
 
       return {
@@ -104,16 +140,27 @@ export async function GET(
         title: s.title,
         sessionDate: s.session_date,
         isOpen: s.is_open,
+        isApplicableToGrade: isApplicable,
         submission: submission || null,
         status: calculatedStatus,
       };
     });
+
+    const attendanceRate =
+      totalApplicable > 0
+        ? Math.round((studentApprovedCount / totalApplicable) * 100)
+        : 0;
 
     return NextResponse.json({
       club: {
         id: club.id,
         name: club.name,
         teacherName,
+      },
+      stats: {
+        totalApplicable,
+        approvedCount: studentApprovedCount,
+        attendanceRate,
       },
       openSessionToday: openSessionToday
         ? {

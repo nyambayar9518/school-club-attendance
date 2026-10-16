@@ -52,7 +52,7 @@ export async function syncWeeklyClubSessions(clubId: string): Promise<void> {
     for (const slot of todaySlots) {
       const expectedTitle =
         todaySlots.length > 1
-          ? `Session for Grades ${slot.min_grade}–${slot.max_grade}`
+          ? `Session for Grades ${slot.min_grade}–${slot.max_grade} (${slot.start_time}–${slot.end_time})`
           : `Session for Grades ${slot.min_grade}–${slot.max_grade}`;
 
       if (!existingTitles.has(expectedTitle)) {

@@ -296,6 +296,13 @@ export default function TeacherDashboardPage() {
     status: "approved" | "rejected"
   ) => {
     try {
+      const currentSub = sessionDetail?.submitted.find((sub) => sub.id === attendanceId);
+      if (!currentSub || currentSub.status === status) {
+        return; // Already in desired state, do nothing
+      }
+
+      const prevStatus = currentSub.status;
+
       const res = await fetch("/api/teacher/attendance/update-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -316,19 +323,35 @@ export default function TeacherDashboardPage() {
         };
       });
 
-      // Update pending/approved counts in sessions list
+      // Update pending/approved counts in sessions list accurately
       if (selectedSessionId) {
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== selectedSessionId) return s;
+            let newPending = s.pendingCount;
+            let newApproved = s.approvedCount;
+
+            if (prevStatus === "pending") {
+              newPending = Math.max(0, newPending - 1);
+            } else if (prevStatus === "approved") {
+              newApproved = Math.max(0, newApproved - 1);
+            }
+
+            if (status === "approved") {
+              newApproved = Math.min(s.enrolledCount, newApproved + 1);
+            }
+
             return {
               ...s,
-              pendingCount: Math.max(0, s.pendingCount - 1),
-              approvedCount: status === "approved" ? s.approvedCount + 1 : s.approvedCount,
+              pendingCount: newPending,
+              approvedCount: newApproved,
             };
           })
         );
       }
+
+      // Proactively refresh analytics data so the attendance matrix reflects the update
+      loadAnalyticsData();
     } catch (err: any) {
       alert(err.message || "Failed to update attendance status");
     }
@@ -381,38 +404,6 @@ export default function TeacherDashboardPage() {
     }
   };
 
-  const handleDeleteSession = async (sessionId: string) => {
-    if (
-      !confirm(
-        "Are you sure you want to delete this attendance session? All submissions for this session will also be removed."
-      )
-    ) {
-      return;
-    }
-
-    try {
-      const res = await fetch("/api/teacher/session/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to delete session");
-
-      if (selectedSessionId === sessionId) {
-        setSelectedSessionId(null);
-        setSessionDetail(null);
-      }
-
-      await loadDashboard();
-      if (activeTab === "analytics") {
-        await loadAnalyticsData();
-      }
-    } catch (err: any) {
-      alert(err.message || "Failed to delete session");
-    }
-  };
 
   const handleSwitchTab = (tab: "sessions" | "roster" | "schedule" | "analytics") => {
     setActiveTab(tab);
@@ -653,15 +644,6 @@ export default function TeacherDashboardPage() {
                         </>
                       )}
                     </button>
-
-                    <button
-                      onClick={() => handleDeleteSession(sessionDetail.session.id)}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 border border-red-200 hover:bg-red-50 px-2.5 py-1 rounded transition-colors"
-                      title="Delete this session"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span>Delete</span>
-                    </button>
                   </div>
                 </div>
 
@@ -770,32 +752,34 @@ export default function TeacherDashboardPage() {
                         <div className="flex items-center gap-2 self-end sm:self-center">
                           <button
                             type="button"
+                            disabled={sub.status === "approved"}
                             onClick={() =>
                               handleUpdateStatus(sub.id, "approved")
                             }
                             className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded transition-colors ${
                               sub.status === "approved"
-                                ? "bg-emerald-600 text-white"
+                                ? "bg-emerald-600 text-white cursor-default"
                                 : "bg-white border border-zinc-300 text-zinc-700 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200"
                             }`}
                           >
                             <Check className="w-3.5 h-3.5" />
-                            <span>Present</span>
+                            <span>{sub.status === "approved" ? "Approved" : "Approve"}</span>
                           </button>
 
                           <button
                             type="button"
+                            disabled={sub.status === "rejected"}
                             onClick={() =>
                               handleUpdateStatus(sub.id, "rejected")
                             }
                             className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded transition-colors ${
                               sub.status === "rejected"
-                                ? "bg-red-600 text-white"
+                                ? "bg-red-600 text-white cursor-default"
                                 : "bg-white border border-zinc-300 text-zinc-700 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
                             }`}
                           >
                             <X className="w-3.5 h-3.5" />
-                            <span>Reject</span>
+                            <span>{sub.status === "rejected" ? "Rejected" : "Reject"}</span>
                           </button>
                         </div>
                       </div>
@@ -896,16 +880,6 @@ export default function TeacherDashboardPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteSession(s.id);
-                        }}
-                        className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                        title="Delete session"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                       <span className="text-xs font-medium text-zinc-600 hidden sm:inline">
                         Review Session
                       </span>
@@ -1451,8 +1425,13 @@ export default function TeacherDashboardPage() {
                         </th>
                         <th className="py-2.5 px-2">Grade</th>
                         {filteredSessions.map((s: any) => (
-                          <th key={s.id} className="py-2.5 px-2 text-center font-mono whitespace-nowrap">
-                            {s.date.slice(5)}
+                          <th key={s.id} className="py-2.5 px-2 text-center whitespace-nowrap min-w-[72px]">
+                            <div className="font-mono text-zinc-900 font-semibold">
+                              {s.date.slice(5)}
+                            </div>
+                            <div className="text-[10px] text-zinc-400 font-normal">
+                              {s.cohortLabel || "All"}
+                            </div>
                           </th>
                         ))}
                         <th className="py-2.5 px-3 text-right">Attendance Rate</th>
@@ -1461,14 +1440,19 @@ export default function TeacherDashboardPage() {
                     <tbody className="divide-y divide-zinc-200">
                       {analyticsData.students.map((st: any) => {
                         let presentInFilter = 0;
+                        let applicableInFilter = 0;
                         filteredSessions.forEach((s: any) => {
-                          if (st.records[s.id] === "approved") {
-                            presentInFilter++;
+                          const status = st.records[s.id];
+                          if (status !== "na") {
+                            applicableInFilter++;
+                            if (status === "approved") {
+                              presentInFilter++;
+                            }
                           }
                         });
                         const studentFilteredRate =
-                          filteredSessions.length > 0
-                            ? Math.round((presentInFilter / filteredSessions.length) * 100)
+                          applicableInFilter > 0
+                            ? Math.round((presentInFilter / applicableInFilter) * 100)
                             : 0;
 
                         return (
@@ -1481,6 +1465,17 @@ export default function TeacherDashboardPage() {
                             </td>
                             {filteredSessions.map((s: any) => {
                               const status = st.records[s.id];
+
+                              if (status === "na") {
+                                return (
+                                  <td key={s.id} className="py-2.5 px-2 text-center" title="Not in target grade cohort">
+                                    <span className="text-zinc-300 font-mono text-xs select-none">
+                                      —
+                                    </span>
+                                  </td>
+                                );
+                              }
+
                               let badgeColor = "bg-zinc-100 text-zinc-500 border-zinc-200";
                               let label = "Absent";
 
@@ -1518,7 +1513,7 @@ export default function TeacherDashboardPage() {
                                 {studentFilteredRate}%
                               </span>{" "}
                               <span className="text-zinc-400 text-[11px]">
-                                ({presentInFilter}/{filteredSessions.length})
+                                ({presentInFilter}/{applicableInFilter})
                               </span>
                             </td>
                           </tr>

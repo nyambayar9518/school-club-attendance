@@ -83,28 +83,60 @@ export async function GET() {
       attendanceMap.set(`${a.session_id}_${a.student_id}`, a.status);
     }
 
+    // Helper to parse grade range from session title
+    const parseSessionInfo = (title: string) => {
+      const gradeMatch = title.match(/Grades?\s*(\d+)[–\-](\d+)/i);
+      const timeMatch = title.match(/(\d{1,2}:\d{2}\s*[–\-]\s*\d{1,2}:\d{2})/);
+      
+      let gradeMin = null;
+      let gradeMax = null;
+      let cohortLabel = "All";
+
+      if (gradeMatch) {
+        gradeMin = parseInt(gradeMatch[1], 10);
+        gradeMax = parseInt(gradeMatch[2], 10);
+        cohortLabel = `Gr. ${gradeMin}–${gradeMax}`;
+      }
+
+      const timeLabel = timeMatch ? timeMatch[1] : "";
+      const displayLabel = timeLabel ? `${cohortLabel} · ${timeLabel}` : cohortLabel;
+
+      return { gradeMin, gradeMax, cohortLabel, timeLabel, displayLabel };
+    };
+
     // 4. Compute per-session metrics for graphic chart
     const sessionMetrics = (sessions || []).map((s) => {
+      const info = parseSessionInfo(s.title);
+
+      // Filter students eligible for this specific session
+      const eligibleStudents = enrolledStudents.filter((st) => {
+        if (info.gradeMin === null || info.gradeMax === null || !st.grade) return true;
+        return st.grade >= info.gradeMin && st.grade <= info.gradeMax;
+      });
+
+      const eligibleCount = eligibleStudents.length;
       let approvedCount = 0;
       let pendingCount = 0;
       let rejectedCount = 0;
 
-      for (const st of enrolledStudents) {
+      for (const st of eligibleStudents) {
         const status = attendanceMap.get(`${s.id}_${st.id}`);
         if (status === "approved") approvedCount++;
         else if (status === "pending") pendingCount++;
         else if (status === "rejected") rejectedCount++;
       }
 
-      const absentCount = Math.max(0, totalEnrolled - (approvedCount + pendingCount));
-      const rate = totalEnrolled > 0 ? Math.round((approvedCount / totalEnrolled) * 100) : 0;
+      const absentCount = Math.max(0, eligibleCount - (approvedCount + pendingCount));
+      const rate = eligibleCount > 0 ? Math.round((approvedCount / eligibleCount) * 100) : 0;
 
       return {
         id: s.id,
         title: s.title,
         date: s.session_date,
         isOpen: s.is_open,
-        totalEnrolled,
+        totalEnrolled: eligibleCount,
+        cohortLabel: info.cohortLabel,
+        displayLabel: info.displayLabel,
         approvedCount,
         pendingCount,
         rejectedCount,
@@ -117,15 +149,32 @@ export async function GET() {
     const studentBreakdown = enrolledStudents.map((st) => {
       const records: Record<string, string> = {};
       let studentApproved = 0;
+      let applicableSessions = 0;
 
       for (const s of sessions || []) {
-        const status = attendanceMap.get(`${s.id}_${st.id}`) || "absent";
-        records[s.id] = status;
-        if (status === "approved") studentApproved++;
+        const info = parseSessionInfo(s.title);
+        const isApplicable =
+          info.gradeMin === null ||
+          info.gradeMax === null ||
+          !st.grade ||
+          (st.grade >= info.gradeMin && st.grade <= info.gradeMax);
+
+        if (!isApplicable) {
+          records[s.id] = "na";
+        } else {
+          applicableSessions++;
+          const status = attendanceMap.get(`${s.id}_${st.id}`) || "absent";
+          records[s.id] = status;
+          if (status === "approved") {
+            studentApproved++;
+          }
+        }
       }
 
-      const totalSess = sessions?.length || 0;
-      const rate = totalSess > 0 ? Math.round((studentApproved / totalSess) * 100) : 0;
+      const rate =
+        applicableSessions > 0
+          ? Math.round((studentApproved / applicableSessions) * 100)
+          : 0;
 
       return {
         id: st.id,
@@ -134,17 +183,21 @@ export async function GET() {
         phone: st.phone,
         avatarUrl: st.avatar_url,
         approvedTotal: studentApproved,
+        applicableTotal: applicableSessions,
         attendanceRate: rate,
         records,
       };
     });
 
     // 6. Overall average attendance across all recorded sessions
-    const totalPossibleAttendances = totalEnrolled * (sessions?.length || 0);
+    let totalEligibleOccurrences = 0;
+    for (const sm of sessionMetrics) {
+      totalEligibleOccurrences += sm.totalEnrolled;
+    }
     const totalApprovedOverall = allAttendance.filter((a) => a.status === "approved").length;
     const overallRate =
-      totalPossibleAttendances > 0
-        ? Math.round((totalApprovedOverall / totalPossibleAttendances) * 100)
+      totalEligibleOccurrences > 0
+        ? Math.round((totalApprovedOverall / totalEligibleOccurrences) * 100)
         : 0;
 
     return NextResponse.json({

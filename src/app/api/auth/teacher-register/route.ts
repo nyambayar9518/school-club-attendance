@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { hashPassword, signSessionToken, COOKIE_NAME, verifyTeacherCode } from "@/lib/auth";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { normalizePhone, getPhoneVariants } from "@/lib/phone";
 
 export async function POST(request: Request) {
   try {
@@ -38,16 +39,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const cleanPhone = phone.trim();
+    const cleanPhone = normalizePhone(phone) || phone.trim();
 
-    // Check if phone already registered
-    const { data: existingUser } = await supabaseAdmin
+    // Check if phone already registered (checking all +976 and solo variants)
+    const variants = getPhoneVariants(phone);
+    const { data: existingUsers } = await supabaseAdmin
       .from("users")
       .select("id")
-      .eq("phone", cleanPhone)
-      .maybeSingle();
+      .in("phone", variants);
 
-    if (existingUser) {
+    if (existingUsers && existingUsers.length > 0) {
       return NextResponse.json(
         { error: "A user with this phone number already exists" },
         { status: 409 }

@@ -43,26 +43,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Delete all attendance submissions attached to this session
-    await supabaseAdmin
-      .from("attendance")
-      .delete()
-      .eq("session_id", sessionId);
-
-    // 2. Delete the session itself
-    const { error: deleteErr } = await supabaseAdmin
-      .from("sessions")
-      .delete()
-      .eq("id", sessionId);
-
-    if (deleteErr) {
-      return NextResponse.json(
-        { error: `Failed to delete session: ${deleteErr.message}` },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ success: true, message: "Session deleted successfully" });
+    // Permanent restriction: Sessions and historical attendance records cannot be deleted
+    return NextResponse.json(
+      { error: "Attendance sessions cannot be deleted in order to preserve attendance records." },
+      { status: 403 }
+    );
   } catch (err: any) {
     console.error("Delete session error:", err);
     return NextResponse.json(
