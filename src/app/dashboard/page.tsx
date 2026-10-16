@@ -13,6 +13,14 @@ interface ClubCardData {
   approvedCount: number;
   hasOpenSessionToday: boolean;
   openSessionId: string | null;
+  schedule?: {
+    day_of_week: string;
+    start_time: string;
+    end_time: string;
+    min_grade: number;
+    max_grade: number;
+  } | null;
+  isScheduledToday?: boolean;
 }
 
 interface StudentData {
@@ -117,6 +125,11 @@ export default function StudentDashboardPage() {
                         Session Open Today
                       </span>
                     )}
+                    {club.isScheduledToday && !club.hasOpenSessionToday && (
+                      <span className="inline-flex items-center text-xs font-medium px-2 py-0.5 rounded border bg-blue-50 text-blue-700 border-blue-200">
+                        Meets Today
+                      </span>
+                    )}
                   </div>
 
                   <p className="text-xs text-zinc-500">
@@ -125,6 +138,18 @@ export default function StudentDashboardPage() {
                       {club.teacherName}
                     </span>
                   </p>
+
+                  {club.schedule && (
+                    <p className="text-xs text-zinc-600 flex items-center gap-1.5 pt-0.5">
+                      <span className="font-medium text-zinc-900">Weekly Meeting:</span>
+                      <span>
+                        Every {club.schedule.day_of_week} ({club.schedule.start_time}–{club.schedule.end_time})
+                      </span>
+                      <span className="text-[11px] text-zinc-400">
+                        · Grades {club.schedule.min_grade}–{club.schedule.max_grade}
+                      </span>
+                    </p>
+                  )}
 
                   <div className="flex items-center gap-2 pt-1 text-xs text-zinc-600">
                     <span className="font-medium text-zinc-900">

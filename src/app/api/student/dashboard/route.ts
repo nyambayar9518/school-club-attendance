@@ -82,6 +82,33 @@ export async function GET() {
           .eq("session_date", todayStr)
           .maybeSingle();
 
+        // 5. Fetch schedules for this club
+        let scheduleSlot = null;
+        try {
+          const { data: schedData } = await supabaseAdmin
+            .from("club_schedules")
+            .select("*")
+            .eq("club_id", club.id);
+
+          if (schedData && schedData.length > 0) {
+            if (user.grade) {
+              scheduleSlot = schedData.find(
+                (s) => user.grade! >= s.min_grade && user.grade! <= s.max_grade
+              ) || schedData[0];
+            } else {
+              scheduleSlot = schedData[0];
+            }
+          }
+        } catch {
+          scheduleSlot = null;
+        }
+
+        const currentDayName = new Intl.DateTimeFormat("en-US", {
+          weekday: "long",
+        }).format(new Date());
+
+        const isScheduledToday = scheduleSlot?.day_of_week === currentDayName;
+
         return {
           id: club.id,
           name: club.name,
@@ -90,6 +117,8 @@ export async function GET() {
           approvedCount,
           hasOpenSessionToday: !!openSessionToday,
           openSessionId: openSessionToday?.id || null,
+          schedule: scheduleSlot,
+          isScheduledToday,
         };
       })
     );

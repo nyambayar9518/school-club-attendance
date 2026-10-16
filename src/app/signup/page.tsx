@@ -1,11 +1,24 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
+import { Loader2, Calendar, Clock } from "lucide-react";
 import { MASTER_CLUBS } from "@/config/clubs";
 import { ImageUploader } from "@/components/ImageUploader";
+
+interface ClubOption {
+  id: string;
+  name: string;
+  isEligible: boolean;
+  matchingSlot: {
+    day_of_week: string;
+    start_time: string;
+    end_time: string;
+    min_grade: number;
+    max_grade: number;
+  } | null;
+}
 
 export default function StudentSignupPage() {
   const router = useRouter();
@@ -18,8 +31,41 @@ export default function StudentSignupPage() {
   const [firstClub, setFirstClub] = useState(MASTER_CLUBS[0] || "");
   const [secondClub, setSecondClub] = useState(MASTER_CLUBS[1] || "");
 
+  const [clubOptions, setClubOptions] = useState<ClubOption[]>([]);
+  const [loadingClubs, setLoadingClubs] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Fetch grade-specific club schedule options
+  useEffect(() => {
+    async function fetchClubsForGrade() {
+      try {
+        setLoadingClubs(true);
+        const res = await fetch(`/api/clubs/schedules?grade=${grade}`);
+        const data = await res.json();
+        if (data.clubs && Array.isArray(data.clubs)) {
+          setClubOptions(data.clubs);
+
+          const eligible = data.clubs.filter((c: ClubOption) => c.isEligible);
+          if (eligible.length >= 2) {
+            // If current selections are not eligible, update them
+            if (!eligible.some((c: ClubOption) => c.name === firstClub)) {
+              setFirstClub(eligible[0].name);
+            }
+            if (!eligible.some((c: ClubOption) => c.name === secondClub) || secondClub === firstClub) {
+              setSecondClub(eligible[1]?.name || eligible[0].name);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch clubs for grade:", err);
+      } finally {
+        setLoadingClubs(false);
+      }
+    }
+
+    fetchClubsForGrade();
+  }, [grade]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +79,19 @@ export default function StudentSignupPage() {
 
     if (firstClub === secondClub) {
       setErrorMessage("Please select two different clubs. Both choices cannot be the same.");
+      return;
+    }
+
+    // Check grade eligibility
+    const firstObj = clubOptions.find((c) => c.name === firstClub);
+    const secondObj = clubOptions.find((c) => c.name === secondClub);
+
+    if (firstObj && !firstObj.isEligible) {
+      setErrorMessage(`Your selected grade (Grade ${grade}) is not eligible for ${firstClub}.`);
+      return;
+    }
+    if (secondObj && !secondObj.isEligible) {
+      setErrorMessage(`Your selected grade (Grade ${grade}) is not eligible for ${secondClub}.`);
       return;
     }
 
@@ -67,8 +126,19 @@ export default function StudentSignupPage() {
     }
   };
 
+  const formatClubLabel = (club: ClubOption) => {
+    if (!club.isEligible) {
+      return `${club.name} (Not open for Grade ${grade})`;
+    }
+    if (club.matchingSlot) {
+      const slot = club.matchingSlot;
+      return `${club.name} (${slot.day_of_week} ${slot.start_time}–${slot.end_time})`;
+    }
+    return club.name;
+  };
+
   return (
-    <div className="min-h-screen flex flex-col justify-center py-10 px-4 sm:px-6">
+    <div className="min-h-screen flex flex-col justify-center py-10 px-4 sm:px-6 bg-zinc-50">
       <div className="max-w-sm w-full mx-auto space-y-6">
         <div className="space-y-1 text-center">
           <h1 className="text-xl font-semibold tracking-tight text-zinc-900">
@@ -106,7 +176,7 @@ export default function StudentSignupPage() {
               />
             </div>
 
-            {/* Grade */}
+            {/* Grade Selection (Triggers schedule filtering) */}
             <div className="space-y-1">
               <label
                 htmlFor="grade"
@@ -175,11 +245,18 @@ export default function StudentSignupPage() {
               onUploaded={(url) => setAvatarUrl(url)}
             />
 
-            {/* Club Selection */}
+            {/* Club Selection with Weekly Schedule Info */}
             <div className="pt-2 border-t border-zinc-100 space-y-3">
-              <p className="text-xs font-medium text-zinc-900">
-                Club Selection (Choose 2 different clubs)
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-zinc-900">
+                  Club Selection (2 different clubs)
+                </p>
+                {loadingClubs && (
+                  <span className="text-[11px] text-zinc-400 flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Checking schedules...
+                  </span>
+                )}
+              </div>
 
               <div className="space-y-1">
                 <label
@@ -194,11 +271,21 @@ export default function StudentSignupPage() {
                   onChange={(e) => setFirstClub(e.target.value)}
                   className="w-full px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900"
                 >
-                  {MASTER_CLUBS.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
+                  {clubOptions.length > 0
+                    ? clubOptions.map((c) => (
+                        <option
+                          key={c.id}
+                          value={c.name}
+                          disabled={!c.isEligible}
+                        >
+                          {formatClubLabel(c)}
+                        </option>
+                      ))
+                    : MASTER_CLUBS.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
                 </select>
               </div>
 
@@ -215,11 +302,21 @@ export default function StudentSignupPage() {
                   onChange={(e) => setSecondClub(e.target.value)}
                   className="w-full px-3 py-2 text-sm bg-white border border-zinc-300 rounded-md focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900"
                 >
-                  {MASTER_CLUBS.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
+                  {clubOptions.length > 0
+                    ? clubOptions.map((c) => (
+                        <option
+                          key={c.id}
+                          value={c.name}
+                          disabled={!c.isEligible}
+                        >
+                          {formatClubLabel(c)}
+                        </option>
+                      ))
+                    : MASTER_CLUBS.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
                 </select>
               </div>
             </div>

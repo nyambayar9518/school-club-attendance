@@ -59,6 +59,19 @@ CREATE TABLE IF NOT EXISTS public.attendance (
     CONSTRAINT unique_session_student UNIQUE (session_id, student_id)
 );
 
+-- Weekly Club Schedules & Grade Slots
+CREATE TABLE IF NOT EXISTS public.club_schedules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id UUID NOT NULL REFERENCES public.clubs(id) ON DELETE CASCADE,
+    teacher_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    day_of_week TEXT NOT NULL CHECK (day_of_week IN ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')),
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    min_grade INTEGER NOT NULL CHECK (min_grade >= 6 AND min_grade <= 12),
+    max_grade INTEGER NOT NULL CHECK (max_grade >= 6 AND max_grade <= 12 AND max_grade >= min_grade),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
 -- 3. INDEXES FOR HIGH-PERFORMANCE QUERIES
 CREATE INDEX IF NOT EXISTS idx_users_phone ON public.users(phone);
 CREATE INDEX IF NOT EXISTS idx_club_members_user ON public.club_members(user_id);
@@ -67,6 +80,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_club ON public.sessions(club_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_date ON public.sessions(session_date);
 CREATE INDEX IF NOT EXISTS idx_attendance_session ON public.attendance(session_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_student ON public.attendance(student_id);
+CREATE INDEX IF NOT EXISTS idx_club_schedules_club ON public.club_schedules(club_id);
+CREATE INDEX IF NOT EXISTS idx_club_schedules_day ON public.club_schedules(day_of_week);
 
 -- 4. ROW LEVEL SECURITY (RLS) POLICIES
 -- Enables RLS and grants full access to service/anon backend server queries.
@@ -75,6 +90,7 @@ ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.club_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.club_schedules ENABLE ROW LEVEL SECURITY;
 
 -- Permissive policies for the custom JWT/server application layer
 DO $$
@@ -87,6 +103,16 @@ BEGIN
 
     DROP POLICY IF EXISTS "Public access for club_members" ON public.club_members;
     CREATE POLICY "Public access for club_members" ON public.club_members FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Public access for sessions" ON public.sessions;
+    CREATE POLICY "Public access for sessions" ON public.sessions FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Public access for attendance" ON public.attendance;
+    CREATE POLICY "Public access for attendance" ON public.attendance FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Public access for club_schedules" ON public.club_schedules;
+    CREATE POLICY "Public access for club_schedules" ON public.club_schedules FOR ALL USING (true) WITH CHECK (true);
+END $$;
 
     DROP POLICY IF EXISTS "Public access for sessions" ON public.sessions;
     CREATE POLICY "Public access for sessions" ON public.sessions FOR ALL USING (true) WITH CHECK (true);

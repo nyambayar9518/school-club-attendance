@@ -9,6 +9,8 @@ import {
   Plus,
   Users,
   CalendarCheck,
+  Calendar,
+  Trash2,
   Check,
   X,
   Loader2,
@@ -19,6 +21,17 @@ import {
   Clock,
   ArrowLeft,
 } from "lucide-react";
+
+interface ScheduleSlotItem {
+  id: string;
+  club_id: string;
+  teacher_id: string;
+  day_of_week: string;
+  start_time: string;
+  end_time: string;
+  min_grade: number;
+  max_grade: number;
+}
 
 interface TeacherClub {
   id: string;
@@ -76,7 +89,7 @@ export default function TeacherDashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Active top-level tab
-  const [activeTab, setActiveTab] = useState<"sessions" | "roster">("sessions");
+  const [activeTab, setActiveTab] = useState<"sessions" | "roster" | "schedule">("sessions");
 
   // Selected session for review panel
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
@@ -96,12 +109,24 @@ export default function TeacherDashboardPage() {
   const [roster, setRoster] = useState<RosterStudent[]>([]);
   const [loadingRoster, setLoadingRoster] = useState(false);
 
+  // Weekly Schedule Slots data
+  const [schedules, setSchedules] = useState<ScheduleSlotItem[]>([]);
+  const [loadingSchedules, setLoadingSchedules] = useState(false);
+  const [showAddSlotModal, setShowAddSlotModal] = useState(false);
+  const [slotDay, setSlotDay] = useState("Friday");
+  const [slotStart, setSlotStart] = useState("15:00");
+  const [slotEnd, setSlotEnd] = useState("16:00");
+  const [slotMinGrade, setSlotMinGrade] = useState("7");
+  const [slotMaxGrade, setSlotMaxGrade] = useState("9");
+  const [savingSlot, setSavingSlot] = useState(false);
+
   // Create session modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDate, setNewDate] = useState(
     new Date().toISOString().split("T")[0]
   );
+  const [selectedSlotForSession, setSelectedSlotForSession] = useState<string>("");
   const [creatingSession, setCreatingSession] = useState(false);
 
   // Image modal lightbox
@@ -125,6 +150,7 @@ export default function TeacherDashboardPage() {
       setClub(data.club);
       setSessions(data.sessions || []);
       setEnrolledCount(data.enrolledCount || 0);
+      loadSchedulesData();
     } catch (err: any) {
       console.error("Dashboard error:", err);
       setError(err.message || "Failed to load dashboard data");
@@ -258,10 +284,68 @@ export default function TeacherDashboardPage() {
     }
   };
 
-  const handleSwitchTab = (tab: "sessions" | "roster") => {
+  // Load schedules
+  const loadSchedulesData = async () => {
+    try {
+      setLoadingSchedules(true);
+      const res = await fetch("/api/teacher/schedules");
+      const data = await res.json();
+      setSchedules(data.schedules || []);
+    } catch (err) {
+      console.error("Failed to load schedules:", err);
+    } finally {
+      setLoadingSchedules(false);
+    }
+  };
+
+  const handleSwitchTab = (tab: "sessions" | "roster" | "schedule") => {
     setActiveTab(tab);
     if (tab === "roster" && roster.length === 0) {
       loadRosterData();
+    }
+    if (tab === "schedule" && schedules.length === 0) {
+      loadSchedulesData();
+    }
+  };
+
+  const handleCreateScheduleSlot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSavingSlot(true);
+      const res = await fetch("/api/teacher/schedules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dayOfWeek: slotDay,
+          startTime: slotStart,
+          endTime: slotEnd,
+          minGrade: slotMinGrade,
+          maxGrade: slotMaxGrade,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add slot");
+
+      setShowAddSlotModal(false);
+      await loadSchedulesData();
+    } catch (err: any) {
+      alert(err.message || "Failed to create schedule slot");
+    } finally {
+      setSavingSlot(false);
+    }
+  };
+
+  const handleDeleteScheduleSlot = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this schedule slot?")) return;
+    try {
+      const res = await fetch(`/api/teacher/schedules?id=${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete slot");
+      await loadSchedulesData();
+    } catch (err: any) {
+      alert(err.message || "Failed to delete slot");
     }
   };
 
@@ -373,6 +457,21 @@ export default function TeacherDashboardPage() {
             <span>Student Roster</span>
             <span className="text-xs font-mono bg-zinc-100 text-zinc-600 px-1.5 py-0.2 rounded border border-zinc-200">
               {enrolledCount}
+            </span>
+          </button>
+
+          <button
+            onClick={() => handleSwitchTab("schedule")}
+            className={`pb-2.5 text-sm font-medium transition-colors flex items-center gap-2 border-b-2 ${
+              activeTab === "schedule"
+                ? "border-zinc-900 text-zinc-900"
+                : "border-transparent text-zinc-500 hover:text-zinc-700"
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>Weekly Schedule</span>
+            <span className="text-xs font-mono bg-zinc-100 text-zinc-600 px-1.5 py-0.2 rounded border border-zinc-200">
+              {schedules.length}
             </span>
           </button>
         </div>
@@ -767,6 +866,82 @@ export default function TeacherDashboardPage() {
             )}
           </div>
         )}
+
+        {/* TAB 3: WEEKLY SCHEDULE SLOTS */}
+        {activeTab === "schedule" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between bg-white border border-zinc-200 rounded-lg p-4">
+              <div>
+                <h2 className="text-sm font-semibold tracking-tight text-zinc-900">
+                  Weekly Meeting Schedule
+                </h2>
+                <p className="text-xs text-zinc-500">
+                  Manage recurring weekly meeting days, times, and grade brackets.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddSlotModal(true)}
+                className="inline-flex items-center gap-1.5 bg-zinc-900 text-white hover:bg-zinc-800 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Time Slot</span>
+              </button>
+            </div>
+
+            {loadingSchedules ? (
+              <div className="bg-white border border-zinc-200 rounded-lg p-8 text-center text-xs text-zinc-500 flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Loading schedules...</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {schedules.map((slot) => (
+                  <div
+                    key={slot.id}
+                    className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3 flex flex-col justify-between hover:border-zinc-300 transition-colors"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded border bg-zinc-100 text-zinc-900 border-zinc-200">
+                          Every {slot.day_of_week}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteScheduleSlot(slot.id)}
+                          className="text-zinc-400 hover:text-red-600 transition-colors p-1"
+                          title="Delete slot"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-0.5">
+                        <p className="text-base font-semibold tracking-tight text-zinc-900 flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-zinc-500" />
+                          <span>{slot.start_time} – {slot.end_time}</span>
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                          Target:{" "}
+                          <span className="font-medium text-zinc-700">
+                            Grades {slot.min_grade} to {slot.max_grade}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {schedules.length === 0 && (
+                  <div className="sm:col-span-2 bg-white border border-dashed border-zinc-200 rounded-lg p-8 text-center text-xs text-zinc-500 space-y-2">
+                    <p className="font-medium text-zinc-700">No weekly schedule slots configured</p>
+                    <p>Click &quot;Add Time Slot&quot; above to add meeting times and grade groups.</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
       {/* CREATE SESSION MODAL */}
@@ -783,6 +958,36 @@ export default function TeacherDashboardPage() {
             </div>
 
             <form onSubmit={handleCreateSession} className="space-y-4">
+              {/* Pre-fill from schedule slots if available */}
+              {schedules.length > 0 && (
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-zinc-700">
+                    Schedule Slot / Target Group
+                  </label>
+                  <select
+                    value={selectedSlotForSession}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedSlotForSession(val);
+                      if (val) {
+                        const slot = schedules.find((s) => s.id === val);
+                        if (slot) {
+                          setNewTitle(`Session for Grades ${slot.min_grade}–${slot.max_grade}`);
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-xs bg-white border border-zinc-300 rounded-md focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  >
+                    <option value="">All Club Members (General)</option>
+                    {schedules.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.day_of_week} {s.start_time}–{s.end_time} (Grades {s.min_grade}–{s.max_grade})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <label
                   htmlFor="sessionTitle"
@@ -837,6 +1042,119 @@ export default function TeacherDashboardPage() {
                   <span>
                     {creatingSession ? "Creating..." : "Create Session"}
                   </span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADD SCHEDULE SLOT MODAL */}
+      {showAddSlotModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white border border-zinc-200 rounded-lg max-w-sm w-full p-6 space-y-4">
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold tracking-tight text-zinc-900">
+                Add Weekly Schedule Slot
+              </h2>
+              <p className="text-xs text-zinc-500">
+                Define recurring day, time window, and target grades
+              </p>
+            </div>
+
+            <form onSubmit={handleCreateScheduleSlot} className="space-y-3">
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-zinc-700">
+                  Day of Week
+                </label>
+                <select
+                  value={slotDay}
+                  onChange={(e) => setSlotDay(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-zinc-300 rounded-md focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                >
+                  {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map(
+                    (d) => (
+                      <option key={d} value={d}>
+                        Every {d}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-zinc-700">
+                    Start Time
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={slotStart}
+                    onChange={(e) => setSlotStart(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-zinc-300 rounded-md focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-zinc-700">
+                    End Time
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={slotEnd}
+                    onChange={(e) => setSlotEnd(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-zinc-300 rounded-md focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-zinc-700">
+                  Grade Range
+                </label>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={slotMinGrade}
+                    onChange={(e) => setSlotMinGrade(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-zinc-300 rounded-md focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  >
+                    {[6, 7, 8, 9, 10, 11, 12].map((g) => (
+                      <option key={g} value={g}>
+                        Grade {g}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-zinc-400">to</span>
+                  <select
+                    value={slotMaxGrade}
+                    onChange={(e) => setSlotMaxGrade(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-zinc-300 rounded-md focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  >
+                    {[6, 7, 8, 9, 10, 11, 12].map((g) => (
+                      <option key={g} value={g}>
+                        Grade {g}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddSlotModal(false)}
+                  className="px-3 py-2 text-xs font-medium text-zinc-600 hover:text-zinc-900 rounded-md transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingSlot}
+                  className="bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60 rounded-md px-4 py-2 text-xs font-medium transition-colors flex items-center gap-1.5"
+                >
+                  {savingSlot && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{savingSlot ? "Saving..." : "Save Time Slot"}</span>
                 </button>
               </div>
             </form>

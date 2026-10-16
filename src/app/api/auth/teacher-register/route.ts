@@ -104,6 +104,26 @@ export async function POST(request: Request) {
       );
     }
 
+    // Insert schedule slots if provided
+    const schedules = Array.isArray(body.schedules) ? body.schedules : [];
+    if (schedules.length > 0) {
+      try {
+        const scheduleRows = schedules.map((s: any) => ({
+          club_id: clubId,
+          teacher_id: newTeacher.id,
+          day_of_week: s.dayOfWeek,
+          start_time: s.startTime,
+          end_time: s.endTime,
+          min_grade: parseInt(s.minGrade, 10),
+          max_grade: parseInt(s.maxGrade, 10),
+        }));
+
+        await supabaseAdmin.from("club_schedules").insert(scheduleRows);
+      } catch (schedErr) {
+        console.warn("Could not insert schedules (table may need migration):", schedErr);
+      }
+    }
+
     // Create session token
     const token = await signSessionToken({
       id: newTeacher.id,
