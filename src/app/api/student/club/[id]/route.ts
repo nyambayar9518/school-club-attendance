@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase";
+import { syncWeeklyClubSessions } from "@/lib/auto-renew";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,9 @@ export async function GET(
 
     const teacherName =
       (leaderMember?.users as any)?.full_name || "Faculty Advisor";
+
+    // Auto-renew sessions and close past ones
+    await syncWeeklyClubSessions(clubId);
 
     // Get all sessions for this club ordered by date descending
     const { data: sessions, error: sessErr } = await supabaseAdmin

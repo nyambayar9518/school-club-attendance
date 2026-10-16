@@ -37,6 +37,23 @@ export async function POST(request: Request) {
 
     const todayStr = sessionDate || new Date().toISOString().split("T")[0];
 
+    // Check if session for this club, date, and title already exists to avoid duplicates
+    const { data: existingSession } = await supabaseAdmin
+      .from("sessions")
+      .select("id, title, session_date, is_open")
+      .eq("club_id", clubId)
+      .eq("session_date", todayStr)
+      .eq("title", title.trim())
+      .maybeSingle();
+
+    if (existingSession) {
+      return NextResponse.json({
+        success: true,
+        session: existingSession,
+        message: "A session for this date and title is already active",
+      });
+    }
+
     const { data: newSession, error: createErr } = await supabaseAdmin
       .from("sessions")
       .insert({

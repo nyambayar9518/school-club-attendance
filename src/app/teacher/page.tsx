@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import Image from "next/image";
 import { Navbar } from "@/components/Navbar";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -20,6 +20,8 @@ import {
   Phone,
   Clock,
   ArrowLeft,
+  BarChart3,
+  Filter,
 } from "lucide-react";
 
 interface ScheduleSlotItem {
@@ -89,7 +91,20 @@ export default function TeacherDashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Active top-level tab
-  const [activeTab, setActiveTab] = useState<"sessions" | "roster" | "schedule">("sessions");
+  const [activeTab, setActiveTab] = useState<
+    "sessions" | "roster" | "schedule" | "analytics"
+  >("sessions");
+
+  // Analytics & Graphic state
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [dateFilterPreset, setDateFilterPreset] = useState<
+    "all" | "last30" | "custom" | "select_specific"
+  >("all");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
+  const [hoveredSession, setHoveredSession] = useState<any>(null);
 
   // Selected session for review panel
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
@@ -134,6 +149,57 @@ export default function TeacherDashboardPage() {
     url: string;
     alt: string;
   } | null>(null);
+
+  // Filtered sessions for Attendance Graphic
+  const filteredSessions = useMemo(() => {
+    if (!analyticsData?.sessions) return [];
+    let list = [...analyticsData.sessions];
+
+    if (dateFilterPreset === "last30") {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const dateStr = thirtyDaysAgo.toISOString().split("T")[0];
+      list = list.filter((s: any) => s.date >= dateStr);
+    } else if (dateFilterPreset === "custom") {
+      if (customStartDate) {
+        list = list.filter((s: any) => s.date >= customStartDate);
+      }
+      if (customEndDate) {
+        list = list.filter((s: any) => s.date <= customEndDate);
+      }
+    } else if (dateFilterPreset === "select_specific") {
+      if (selectedSessionIds.length > 0) {
+        list = list.filter((s: any) => selectedSessionIds.includes(s.id));
+      }
+    }
+
+    return list;
+  }, [
+    analyticsData,
+    dateFilterPreset,
+    customStartDate,
+    customEndDate,
+    selectedSessionIds,
+  ]);
+
+  const filteredMetrics = useMemo(() => {
+    const totalEnrolled = analyticsData?.enrolledCount || 0;
+    const totalSessions = filteredSessions.length;
+    const totalApproved = filteredSessions.reduce(
+      (acc: number, s: any) => acc + s.approvedCount,
+      0
+    );
+    const totalPossible = totalEnrolled * totalSessions;
+    const avgRate =
+      totalPossible > 0 ? Math.round((totalApproved / totalPossible) * 100) : 0;
+
+    return {
+      totalEnrolled,
+      totalSessions,
+      totalApproved,
+      avgRate,
+    };
+  }, [filteredSessions, analyticsData]);
 
   // Fetch teacher dashboard data
   const loadDashboard = async () => {
@@ -298,13 +364,66 @@ export default function TeacherDashboardPage() {
     }
   };
 
-  const handleSwitchTab = (tab: "sessions" | "roster" | "schedule") => {
+  const loadAnalyticsData = async () => {
+    try {
+      setLoadingAnalytics(true);
+      const res = await fetch("/api/teacher/analytics");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load analytics");
+      setAnalyticsData(data);
+      if (data.sessions && data.sessions.length > 0) {
+        setSelectedSessionIds(data.sessions.map((s: any) => s.id));
+      }
+    } catch (err: any) {
+      console.error("Analytics fetch error:", err);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    if (
+      !confirm(
+        "Are you sure you want to delete this attendance session? All submissions for this session will also be removed."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/teacher/session/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete session");
+
+      if (selectedSessionId === sessionId) {
+        setSelectedSessionId(null);
+        setSessionDetail(null);
+      }
+
+      await loadDashboard();
+      if (activeTab === "analytics") {
+        await loadAnalyticsData();
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to delete session");
+    }
+  };
+
+  const handleSwitchTab = (tab: "sessions" | "roster" | "schedule" | "analytics") => {
     setActiveTab(tab);
     if (tab === "roster" && roster.length === 0) {
       loadRosterData();
     }
     if (tab === "schedule" && schedules.length === 0) {
       loadSchedulesData();
+    }
+    if (tab === "analytics") {
+      loadAnalyticsData();
     }
   };
 
@@ -474,6 +593,18 @@ export default function TeacherDashboardPage() {
               {schedules.length}
             </span>
           </button>
+
+          <button
+            onClick={() => handleSwitchTab("analytics")}
+            className={`pb-2.5 text-sm font-medium transition-colors flex items-center gap-2 border-b-2 ${
+              activeTab === "analytics"
+                ? "border-zinc-900 text-zinc-900"
+                : "border-transparent text-zinc-500 hover:text-zinc-700"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Attendance Graphic</span>
+          </button>
         </div>
 
         {/* TAB 1: ATTENDANCE SESSIONS */}
@@ -521,6 +652,15 @@ export default function TeacherDashboardPage() {
                           <span>Reopen Session</span>
                         </>
                       )}
+                    </button>
+
+                    <button
+                      onClick={() => handleDeleteSession(sessionDetail.session.id)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 border border-red-200 hover:bg-red-50 px-2.5 py-1 rounded transition-colors"
+                      title="Delete this session"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Delete</span>
                     </button>
                   </div>
                 </div>
@@ -755,11 +895,21 @@ export default function TeacherDashboardPage() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 text-zinc-400">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSession(s.id);
+                        }}
+                        className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                        title="Delete session"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                       <span className="text-xs font-medium text-zinc-600 hidden sm:inline">
                         Review Session
                       </span>
-                      <ChevronRight className="w-4 h-4" />
+                      <ChevronRight className="w-4 h-4 text-zinc-400" />
                     </div>
                   </div>
                 ))}
@@ -940,6 +1090,449 @@ export default function TeacherDashboardPage() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* TAB 4: ATTENDANCE GRAPHIC & TIMELINE ANALYTICS */}
+        {activeTab === "analytics" && (
+          <div className="space-y-6">
+            {/* Controls Bar: Preset & Date Range Filter */}
+            <div className="bg-white border border-zinc-200 rounded-lg p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-200 pb-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-sm font-semibold tracking-tight text-zinc-900 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-zinc-700" />
+                    <span>Attendance Timeline &amp; Graphic</span>
+                  </h2>
+                  <p className="text-xs text-zinc-500">
+                    Track attendance trends from beginning to end or select specific dates
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    onClick={() => setDateFilterPreset("all")}
+                    className={`px-2.5 py-1 text-xs font-medium rounded border transition-colors ${
+                      dateFilterPreset === "all"
+                        ? "bg-zinc-900 text-white border-zinc-900"
+                        : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50"
+                    }`}
+                  >
+                    All Sessions
+                  </button>
+                  <button
+                    onClick={() => setDateFilterPreset("last30")}
+                    className={`px-2.5 py-1 text-xs font-medium rounded border transition-colors ${
+                      dateFilterPreset === "last30"
+                        ? "bg-zinc-900 text-white border-zinc-900"
+                        : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50"
+                    }`}
+                  >
+                    Last 30 Days
+                  </button>
+                  <button
+                    onClick={() => setDateFilterPreset("select_specific")}
+                    className={`px-2.5 py-1 text-xs font-medium rounded border transition-colors ${
+                      dateFilterPreset === "select_specific"
+                        ? "bg-zinc-900 text-white border-zinc-900"
+                        : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50"
+                    }`}
+                  >
+                    Select Specific Dates
+                  </button>
+                  <button
+                    onClick={() => setDateFilterPreset("custom")}
+                    className={`px-2.5 py-1 text-xs font-medium rounded border transition-colors ${
+                      dateFilterPreset === "custom"
+                        ? "bg-zinc-900 text-white border-zinc-900"
+                        : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50"
+                    }`}
+                  >
+                    Custom Range
+                  </button>
+                </div>
+              </div>
+
+              {/* Custom Date Range Picker */}
+              {dateFilterPreset === "custom" && (
+                <div className="flex items-center gap-3 bg-zinc-50 border border-zinc-200 rounded-md p-3 text-xs flex-wrap">
+                  <span className="font-medium text-zinc-700">From Date:</span>
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    className="px-2 py-1 bg-white border border-zinc-300 rounded focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                  <span className="font-medium text-zinc-700">To Date:</span>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    className="px-2 py-1 bg-white border border-zinc-300 rounded focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                  {(customStartDate || customEndDate) && (
+                    <button
+                      onClick={() => {
+                        setCustomStartDate("");
+                        setCustomEndDate("");
+                      }}
+                      className="text-zinc-400 hover:text-zinc-700 underline text-[11px]"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Specific Date Multi-selector */}
+              {dateFilterPreset === "select_specific" && analyticsData?.sessions && (
+                <div className="space-y-2 bg-zinc-50 border border-zinc-200 rounded-md p-3">
+                  <div className="flex items-center justify-between text-xs text-zinc-600">
+                    <span className="font-medium text-zinc-900">Choose dates to include in graphic:</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setSelectedSessionIds(analyticsData.sessions.map((s: any) => s.id))}
+                        className="text-[11px] text-zinc-600 hover:text-zinc-900 underline"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-zinc-300">·</span>
+                      <button
+                        onClick={() => setSelectedSessionIds([])}
+                        className="text-[11px] text-zinc-600 hover:text-zinc-900 underline"
+                      >
+                        Deselect All
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {analyticsData.sessions.map((s: any) => {
+                      const isSelected = selectedSessionIds.includes(s.id);
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedSessionIds(selectedSessionIds.filter((id) => id !== s.id));
+                            } else {
+                              setSelectedSessionIds([...selectedSessionIds, s.id]);
+                            }
+                          }}
+                          className={`px-2.5 py-1 text-xs rounded border transition-colors ${
+                            isSelected
+                              ? "bg-zinc-900 text-white border-zinc-900"
+                              : "bg-white text-zinc-500 border-zinc-200 hover:border-zinc-300"
+                          }`}
+                        >
+                          {s.date} ({s.rate}%)
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 4 KPI Metric Badges */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3">
+                  <span className="text-[11px] text-zinc-500 block">Average Attendance</span>
+                  <span className="text-lg font-semibold tracking-tight text-zinc-900">
+                    {filteredMetrics.avgRate}%
+                  </span>
+                  <span className="text-[10px] text-zinc-400 block">in selected period</span>
+                </div>
+                <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3">
+                  <span className="text-[11px] text-zinc-500 block">Sessions Analyzed</span>
+                  <span className="text-lg font-semibold tracking-tight text-zinc-900">
+                    {filteredMetrics.totalSessions}
+                  </span>
+                  <span className="text-[10px] text-zinc-400 block">scheduled meetings</span>
+                </div>
+                <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3">
+                  <span className="text-[11px] text-zinc-500 block">Approved Submissions</span>
+                  <span className="text-lg font-semibold tracking-tight text-emerald-700">
+                    {filteredMetrics.totalApproved}
+                  </span>
+                  <span className="text-[10px] text-zinc-400 block">verified check-ins</span>
+                </div>
+                <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3">
+                  <span className="text-[11px] text-zinc-500 block">Total Enrolled</span>
+                  <span className="text-lg font-semibold tracking-tight text-zinc-900">
+                    {filteredMetrics.totalEnrolled}
+                  </span>
+                  <span className="text-[10px] text-zinc-400 block">club members</span>
+                </div>
+              </div>
+            </div>
+
+            {/* THE ATTENDANCE GRAPHIC (Interactive Timeline Column Chart) */}
+            <div className="bg-white border border-zinc-200 rounded-lg p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-200 pb-3 flex-wrap gap-2">
+                <h3 className="text-sm font-semibold tracking-tight text-zinc-900">
+                  Attendance Graphic (From Beginning to End)
+                </h3>
+                <div className="flex items-center gap-3 text-xs text-zinc-500">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-emerald-600 inline-block" />
+                    <span>&ge;75% High</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-zinc-800 inline-block" />
+                    <span>50–74% Medium</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" />
+                    <span>&lt;50% Low</span>
+                  </span>
+                </div>
+              </div>
+
+              {loadingAnalytics ? (
+                <div className="py-16 text-center text-xs text-zinc-500 flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Loading attendance graphic...</span>
+                </div>
+              ) : filteredSessions.length === 0 ? (
+                <div className="py-16 text-center text-xs text-zinc-500 border border-dashed border-zinc-200 rounded-md">
+                  No attendance sessions match the selected date filter.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Chart Viewport */}
+                  <div className="relative pt-6 pb-2">
+                    {/* Y-axis guidelines */}
+                    <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-8 text-[10px] text-zinc-400">
+                      <div className="border-b border-zinc-100 w-full flex justify-between pr-2">
+                        <span>100%</span>
+                      </div>
+                      <div className="border-b border-zinc-100 w-full flex justify-between pr-2">
+                        <span>75%</span>
+                      </div>
+                      <div className="border-b border-zinc-100 w-full flex justify-between pr-2">
+                        <span>50%</span>
+                      </div>
+                      <div className="border-b border-zinc-100 w-full flex justify-between pr-2">
+                        <span>25%</span>
+                      </div>
+                      <div className="border-b border-zinc-200 w-full flex justify-between pr-2">
+                        <span>0%</span>
+                      </div>
+                    </div>
+
+                    {/* Bars Container */}
+                    <div className="relative z-10 flex items-end justify-around gap-2 h-56 pl-8 pr-2 overflow-x-auto">
+                      {filteredSessions.map((s: any) => {
+                        const barColor =
+                          s.rate >= 75
+                            ? "bg-emerald-600 hover:bg-emerald-700"
+                            : s.rate >= 50
+                            ? "bg-zinc-800 hover:bg-zinc-900"
+                            : "bg-amber-500 hover:bg-amber-600";
+
+                        const isHovered = hoveredSession?.id === s.id;
+
+                        return (
+                          <div
+                            key={s.id}
+                            className="flex flex-col items-center flex-1 min-w-[56px] max-w-[80px] h-full justify-end group cursor-pointer"
+                            onMouseEnter={() => setHoveredSession(s)}
+                            onClick={() => {
+                              setSelectedSessionId(s.id);
+                              loadSessionDetails(s.id);
+                              setActiveTab("sessions");
+                            }}
+                          >
+                            {/* Rate percentage badge on top */}
+                            <span
+                              className={`text-[10px] font-mono font-medium mb-1 transition-opacity ${
+                                isHovered ? "text-zinc-900 font-bold" : "text-zinc-500"
+                              }`}
+                            >
+                              {s.rate}%
+                            </span>
+
+                            {/* Bar Column */}
+                            <div className="w-full bg-zinc-100 rounded-t-sm h-40 flex items-end">
+                              <div
+                                style={{ height: `${Math.max(4, s.rate)}%` }}
+                                className={`w-full rounded-t-sm transition-all duration-300 ${barColor}`}
+                              />
+                            </div>
+
+                            {/* Date Label Below Bar */}
+                            <div className="mt-2 text-center">
+                              <span className="block text-[11px] font-mono font-medium text-zinc-800">
+                                {s.date.slice(5)}
+                              </span>
+                              <span className="block text-[9px] text-zinc-400 truncate max-w-[60px]">
+                                {s.approvedCount}/{s.totalEnrolled}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Detail inspect card when a bar is hovered */}
+                  {hoveredSession && (
+                    <div className="bg-zinc-50 border border-zinc-200 rounded-md p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div>
+                        <span className="font-semibold text-zinc-900">
+                          {hoveredSession.title}
+                        </span>
+                        <span className="text-zinc-500 ml-2">
+                          Date: {hoveredSession.date}
+                        </span>
+                        <div className="flex items-center gap-3 mt-1 text-zinc-600 flex-wrap">
+                          <span>
+                            Approved:{" "}
+                            <strong className="text-emerald-700">
+                              {hoveredSession.approvedCount}
+                            </strong>
+                          </span>
+                          <span>
+                            Pending:{" "}
+                            <strong className="text-amber-700">
+                              {hoveredSession.pendingCount}
+                            </strong>
+                          </span>
+                          <span>
+                            Absent:{" "}
+                            <strong className="text-zinc-500">
+                              {hoveredSession.absentCount}
+                            </strong>
+                          </span>
+                          <span>
+                            Rate:{" "}
+                            <strong className="text-zinc-900">
+                              {hoveredSession.rate}%
+                            </strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setSelectedSessionId(hoveredSession.id);
+                          loadSessionDetails(hoveredSession.id);
+                          setActiveTab("sessions");
+                        }}
+                        className="bg-zinc-900 text-white hover:bg-zinc-800 px-3 py-1.5 rounded text-xs font-medium self-start sm:self-auto transition-colors"
+                      >
+                        Review Session
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* DETAILED STUDENT ATTENDANCE MATRIX (Heatmap From Beginning to End) */}
+            <div className="bg-white border border-zinc-200 rounded-lg p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
+                <div>
+                  <h3 className="text-sm font-semibold tracking-tight text-zinc-900">
+                    Student Attendance Matrix
+                  </h3>
+                  <p className="text-xs text-zinc-500">
+                    Individual attendance status per session across selected dates
+                  </p>
+                </div>
+              </div>
+
+              {analyticsData?.students && analyticsData.students.length > 0 ? (
+                <div className="overflow-x-auto border border-zinc-200 rounded-md">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-medium">
+                      <tr>
+                        <th className="py-2.5 px-3 sticky left-0 bg-zinc-50 z-10 min-w-[140px]">
+                          Student Name
+                        </th>
+                        <th className="py-2.5 px-2">Grade</th>
+                        {filteredSessions.map((s: any) => (
+                          <th key={s.id} className="py-2.5 px-2 text-center font-mono whitespace-nowrap">
+                            {s.date.slice(5)}
+                          </th>
+                        ))}
+                        <th className="py-2.5 px-3 text-right">Attendance Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200">
+                      {analyticsData.students.map((st: any) => {
+                        let presentInFilter = 0;
+                        filteredSessions.forEach((s: any) => {
+                          if (st.records[s.id] === "approved") {
+                            presentInFilter++;
+                          }
+                        });
+                        const studentFilteredRate =
+                          filteredSessions.length > 0
+                            ? Math.round((presentInFilter / filteredSessions.length) * 100)
+                            : 0;
+
+                        return (
+                          <tr key={st.id} className="hover:bg-zinc-50/60 transition-colors">
+                            <td className="py-2.5 px-3 font-medium text-zinc-900 sticky left-0 bg-white z-10">
+                              {st.name}
+                            </td>
+                            <td className="py-2.5 px-2 text-zinc-500">
+                              Grade {st.grade}
+                            </td>
+                            {filteredSessions.map((s: any) => {
+                              const status = st.records[s.id];
+                              let badgeColor = "bg-zinc-100 text-zinc-500 border-zinc-200";
+                              let label = "Absent";
+
+                              if (status === "approved") {
+                                badgeColor = "bg-emerald-50 text-emerald-700 border-emerald-200";
+                                label = "Present";
+                              } else if (status === "pending") {
+                                badgeColor = "bg-amber-50 text-amber-700 border-amber-200";
+                                label = "Pending";
+                              } else if (status === "rejected") {
+                                badgeColor = "bg-red-50 text-red-700 border-red-200";
+                                label = "Rejected";
+                              }
+
+                              return (
+                                <td key={s.id} className="py-2.5 px-2 text-center">
+                                  <span
+                                    className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded border ${badgeColor}`}
+                                  >
+                                    {label}
+                                  </span>
+                                </td>
+                              );
+                            })}
+                            <td className="py-2.5 px-3 text-right font-medium text-zinc-900">
+                              <span
+                                className={`inline-block text-xs font-semibold ${
+                                  studentFilteredRate >= 75
+                                    ? "text-emerald-700"
+                                    : studentFilteredRate >= 50
+                                    ? "text-zinc-800"
+                                    : "text-amber-700"
+                                }`}
+                              >
+                                {studentFilteredRate}%
+                              </span>{" "}
+                              <span className="text-zinc-400 text-[11px]">
+                                ({presentInFilter}/{filteredSessions.length})
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="py-8 text-center text-xs text-zinc-500">
+                  No student records found for this club.
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>
